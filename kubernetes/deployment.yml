@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: addok
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: addok
+  template:
+    metadata:
+      labels:
+        app: addok
+    spec:
+      volumes:
+        - name: addok-data-volume
+          emptyDir: {}
+        - name: logs-volume
+          emptyDir: {}
+      initContainers:
+        - name: setup-data
+          image: inseefrlab/onyxia-base
+          command:
+            - sh
+            - -c
+            - |
+              wget -O /addok-data/addok.conf https://minio.lab.sspcloud.fr/avouacr/addok/addok.conf
+              wget -O /addok-data/addok.db https://minio.lab.sspcloud.fr/avouacr/addok/addok.db
+          volumeMounts:
+            - mountPath: /addok-data
+              name: addok-data-volume
+      containers:
+        - name: addok
+          image: etalab/addok
+          ports:
+            - containerPort: 7878
+          resources:
+            limits:
+              cpu: 8000m
+              memory: 8Gi 
+          env:
+            - name: WORKERS
+              value: "8"
+            - name: WORKER_TIMEOUT
+              value: "30"
+            - name: LOG_QUERIES
+              value: "1"
+            - name: LOG_NOT_FOUND
+              value: "1"
+            - name: SLOW_QUERIES
+              value: "200"
+          volumeMounts:
+            - name: addok-data-volume
+              subPath: addok.conf
+              mountPath: /etc/addok/addok.conf
+            - name: addok-data-volume
+              subPath: addok.db
+              mountPath: /data/addok.db
+            - mountPath: /logs
+              name: logs-volume
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: addok-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: addok-redis
+  template:
+    metadata:
+      labels:
+        app: addok-redis
+    spec:
+      volumes:
+        - name: addok-data-volume
+          emptyDir: {}
+        - name: logs-volume
+          emptyDir: {}
+      initContainers:
+        - name: setup-data
+          image: inseefrlab/onyxia-base
+          command:
+            - sh
+            - -c
+            - |
+              wget -O /addok-data/dump.rdb https://minio.lab.sspcloud.fr/avouacr/addok/dump.rdb
+          volumeMounts:
+            - mountPath: /addok-data
+              name: addok-data-volume
+      containers:
+        - name: addok-redis
+          image: etalab/addok-redis
+          resources:
+            limits:
+              cpu: 8000m
+              memory: 8Gi 
+          volumeMounts:
+            - name: addok-data-volume
+              subPath: dump.rdb
+              mountPath: /data/dump.rdb
+            - mountPath: /logs
+              name: logs-volume

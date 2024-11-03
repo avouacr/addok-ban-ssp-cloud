@@ -2,7 +2,7 @@
 
 ## Steps
 
-- Retrieve [addok](https://addok.readthedocs.io/en/latest/)'s config and pre-indexed BAN (refer to [documentation](https://github.com/BaseAdresseNationale/addok-docker?tab=readme-ov-file#guides-dinstallation) for more info)
+- Retrieve [addok](https://github.com/BaseAdresseNationale/addok-docker?tab=readme-ov-file#guides-dinstallation)'s config and pre-indexed BAN (only useful if you want the most up to date version, else skip to next step)
 
 ```bash
 cd addok-ban-ssp-cloud

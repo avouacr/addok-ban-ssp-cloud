@@ -1,19 +1,19 @@
-"""Bulk geocode addresses using the BAN.
-
-Reference : https://guides.data.gouv.fr/reutiliser-des-donnees/utiliser-les-api-geographiques/utiliser-lapi-adresse/geocoder-des-adresses-pratique#geocodage-massif
-"""
 import os
 import math
-import shutil
 import requests
+import io
+
+import pandas as pd
+import pyarrow.parquet as pq
+import pyarrow as pa
 
 
 ADDOK_URL = 'http://10.233.23.114:7878/search/csv/'
 
 
-def geocode_chunked(filepath_in, filename_pattern, chunk_by_approximate_lines, requests_options):
+def geocode_bulk(filepath_in, chunk_by_approximate_lines, requests_options):
     b = os.path.getsize(filepath_in)
-    output_files = []
+    intermediate_files = []
     with open(filepath_in, 'r') as bigfile:
         row_count = sum(1 for row in bigfile)
     with open(filepath_in, 'r') as bigfile:
@@ -23,21 +23,34 @@ def geocode_chunked(filepath_in, filename_pattern, chunk_by_approximate_lines, r
         i = 1
         # import ipdb;ipdb.set_trace()
         while current_lines:
-            current_filename = filename_pattern.format(i)
+            # Send batch to addok as CSV 
+            current_filename = 'result-{}.csv'.format(i)
             current_csv = ''.join([headers] + current_lines)
-            # import ipdb;ipdb.set_trace()
             filename, response = post_to_addok(current_filename, current_csv, requests_options)
-            write_response_to_disk(current_filename, response)
+            # Export intermediate results to parquet
+            current_filename_pq = current_filename.replace(".csv", ".parquet")
+            df_intermediate = pd.read_csv(io.StringIO(response.content.decode("utf-8")))
+            df_intermediate = df_intermediate[["id_ea", "idlogement", "depcom", "adresse",
+                                               "result_id", "result_score", "result_label"]]
+            df_intermediate.rename({"result_id": "ban_id",
+                                    "result_score": "ban_score",
+                                    "result_label": "ban_label"})
+            df_intermediate.to_parquet(current_filename_pq)
+            # Increment
             current_lines = bigfile.readlines(chunk_by)
             i += 1
-            output_files.append(current_filename)
-    return output_files
+            intermediate_files.append(current_filename_pq)
 
+    # Merge intermediate csv files into a single parquet file
+    intermediate_tables = [pq.read_table(file) for file in intermediate_files]
+    combined_table = pa.concat_tables(intermediate_tables)
+    output_filename = filepath_in.replace(".csv", "") + ".geocoded" + ".parquet"
+    pq.write_table(combined_table, output_filename)
 
-def write_response_to_disk(filename, response, chunk_size=1024):
-    with open(filename, 'wb') as fd:
-        for chunk in response.iter_content(chunk_size=chunk_size):
-            fd.write(chunk)
+    # Clean intermediate files
+    for file in intermediate_files:
+        if os.path.isfile(file):
+            os.remove(file)
 
 
 def post_to_addok(filename, filelike_object, requests_options):
@@ -49,23 +62,13 @@ def post_to_addok(filename, filelike_object, requests_options):
     return filename, response
 
 
-def consolidate_multiple_csv(files, output_name):
-    with open(output_name, 'wb') as outfile:
-        for i, fname in enumerate(files):
-            with open(fname, 'rb') as infile:
-                if i != 0:
-                    infile.readline()  # Throw away header on all but first file
-                # Block copy rest of file from input to output without parsing
-                shutil.copyfileobj(infile, outfile)
-
-
-myfiles = geocode_chunked(filepath_in='adresses_ril_achille.csv',
-                          filename_pattern='result-{}.csv',
-                          chunk_by_approximate_lines=1000,
-                          requests_options={"columns": ['ADRESSE', 'CODE POSTAL', 'COMMUNE']}
-                          )
-# Merge files
-consolidate_multiple_csv(myfiles, 'adresses_ril_achille.geocoded.csv')
-
-# Clean tmp files
-[os.remove(f) for f in myfiles if os.path.isfile(f)]
+filename = "sample"
+# filename = "adresses_ril_achille"
+geocode_bulk(filepath_in=f'data/{filename}.csv',
+             chunk_by_approximate_lines=1000,
+             requests_options={
+                "citycode": "depcom",
+                "columns": "adresse",
+                "result_columns": "result_id"
+                }
+             )

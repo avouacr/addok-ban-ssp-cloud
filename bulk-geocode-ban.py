@@ -11,7 +11,7 @@ from pyarrow.csv import write_csv
 ADDOK_URL = 'http://api-adresse.data.gouv.fr/search/csv/'
 
 
-def geocode_bulk(filepath_in, requests_options, n_rows_per_batch=1e6):
+def geocode_bulk(filepath_in, requests_options, n_rows_per_batch=1e6, sleeptime_between_batches=1):
     # Open the Parquet file for reading
     parquet_file = pq.ParquetFile(filepath_in)
     row_count = parquet_file.metadata.num_rows
@@ -44,6 +44,7 @@ def geocode_bulk(filepath_in, requests_options, n_rows_per_batch=1e6):
         print(f"Batch {i} done ({n_rows_done} / {row_count} rows).")
 
         i += 1
+        time.sleep(sleeptime_between_batches)
 
     # Concatenate all tables and write the final output once
     combined_table = pa.concat_tables(geocoded_tables)
@@ -74,7 +75,9 @@ if __name__ == "__main__":
                                        "columns": "adresse",
                                        "result_columns": ["result_id", "result_name",
                                                           "result_score", "result_type"]
-                                   })
+                                   },
+                                   sleeptime_between_batches=60
+                                   )
     end = time.time()
     print(f"Geocoding done in {end - start} seconds.")
     print(f"Geocoded data saved to {output_filename}")

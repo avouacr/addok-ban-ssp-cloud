@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: addok-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: addok-redis
+  template:
+    metadata:
+      labels:
+        app: addok-redis
+    spec:
+      volumes:
+        - name: addok-data-volume
+          emptyDir: {}
+        - name: logs-volume
+          emptyDir: {}
+      initContainers:
+        - name: setup-data
+          image: inseefrlab/onyxia-base
+          command:
+            - sh
+            - -c
+            - |
+              wget -O /addok-data/dump.rdb https://minio.lab.sspcloud.fr/avouacr/addok/dump.rdb
+          volumeMounts:
+            - mountPath: /addok-data
+              name: addok-data-volume
+      containers:
+        - name: addok-redis
+          image: etalab/addok-redis
+          resources:
+            limits:
+              cpu: 8000m
+              memory: 8Gi 
+          volumeMounts:
+            - name: addok-data-volume
+              subPath: dump.rdb
+              mountPath: /data/dump.rdb
+            - mountPath: /logs
+              name: logs-volume
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app: addok-redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP

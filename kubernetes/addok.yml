@@ -49,6 +49,8 @@ spec:
               value: "1"
             - name: SLOW_QUERIES
               value: "200"
+            - name: REDIS_PORT
+              value: "6379"
           volumeMounts:
             - name: addok-data-volume
               subPath: addok.conf
@@ -61,46 +63,15 @@ spec:
 
 ---
 
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
-  name: addok-redis
+  name: addok-service
 spec:
-  replicas: 1
   selector:
-    matchLabels:
-      app: addok-redis
-  template:
-    metadata:
-      labels:
-        app: addok-redis
-    spec:
-      volumes:
-        - name: addok-data-volume
-          emptyDir: {}
-        - name: logs-volume
-          emptyDir: {}
-      initContainers:
-        - name: setup-data
-          image: inseefrlab/onyxia-base
-          command:
-            - sh
-            - -c
-            - |
-              wget -O /addok-data/dump.rdb https://minio.lab.sspcloud.fr/avouacr/addok/dump.rdb
-          volumeMounts:
-            - mountPath: /addok-data
-              name: addok-data-volume
-      containers:
-        - name: addok-redis
-          image: etalab/addok-redis
-          resources:
-            limits:
-              cpu: 8000m
-              memory: 8Gi 
-          volumeMounts:
-            - name: addok-data-volume
-              subPath: dump.rdb
-              mountPath: /data/dump.rdb
-            - mountPath: /logs
-              name: logs-volume
+    app: addok
+  ports:
+    - protocol: TCP
+      port: 7878
+      targetPort: 7878
+  type: ClusterIP

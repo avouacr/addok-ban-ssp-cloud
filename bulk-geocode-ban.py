@@ -4,16 +4,19 @@ import time
 
 import pandas as pd
 import pyarrow.parquet as pq
+import pyarrow.dataset as ds
 import pyarrow as pa
 from pyarrow.csv import write_csv
 
-ADDOK_URL = 'http://10.233.23.114:7878/search/csv/'
+ADDOK_URL = 'http://api-adresse.data.gouv.fr/search/csv/'
 
 
-def geocode_bulk(filepath_in, n_rows_per_batch, requests_options):
+def geocode_bulk(filepath_in, requests_options, n_rows_per_batch=1e6):
     # Open the Parquet file for reading
     parquet_file = pq.ParquetFile(filepath_in)
     row_count = parquet_file.metadata.num_rows
+    if n_rows_per_batch is None:
+        n_rows_per_batch = row_count
 
     # Use iter_batches to process the file in chunks
     geocoded_tables = []
@@ -31,14 +34,7 @@ def geocode_bulk(filepath_in, n_rows_per_batch, requests_options):
 
         # Process the API response directly into a pyarrow Table to avoid intermediate CSVs
         response_buffer = io.StringIO(response.content.decode("utf-8"))
-        df_intermediate = pd.read_csv(response_buffer)
-
-        # Rename columns and select relevant ones
-        df_intermediate = df_intermediate.rename(columns={
-            "result_id": "ban_id",
-            "result_score": "ban_score",
-            "result_label": "ban_label"
-        })[["id_ea", "idlogement", "depcom", "adresse", "ban_id", "ban_score", "ban_label"]]
+        df_intermediate = pd.read_csv(response_buffer, dtype={"depcom": "string"})
 
         # Convert the DataFrame to a pyarrow Table and store it in memory
         geocoded_tables.append(pa.Table.from_pandas(df_intermediate))
@@ -54,7 +50,7 @@ def geocode_bulk(filepath_in, n_rows_per_batch, requests_options):
     output_filename = filepath_in.replace(".parquet", "") + ".geocoded.parquet"
     pq.write_table(combined_table, output_filename)
 
-    print(f"Geocoded data saved to {output_filename}")
+    return output_filename
 
 
 def post_to_addok(filename, filelike_object, requests_options):
@@ -69,12 +65,22 @@ def post_to_addok(filename, filelike_object, requests_options):
 
 
 if __name__ == "__main__":
+
+    # Geocoding
     start = time.time()
-    geocode_bulk(filepath_in="data/sample.parquet",
-                 n_rows_per_batch=2000,
-                 requests_options={
-                     "citycode": "depcom",
-                     "columns": "adresse"
-                 })
+    output_filename = geocode_bulk(filepath_in="data/adresses_ril_achille.parquet",
+                                   requests_options={
+                                       "citycode": "depcom",
+                                       "columns": "adresse",
+                                       "result_columns": ["result_id", "result_name",
+                                                          "result_score", "result_type"]
+                                   })
     end = time.time()
     print(f"Geocoding done in {end - start} seconds.")
+    print(f"Geocoded data saved to {output_filename}")
+
+    # Checks
+    df_check = ds.dataset(output_filename, format="parquet")
+    print(df_check.schema)
+    print(f"Number of rows: {df_check.count_rows()}")
+    print(df_check.head(5).to_pandas())
